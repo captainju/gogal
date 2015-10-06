@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/captainju/gogal/util"
-	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	"github.com/nfnt/resize"
 	"github.com/rwcarlsen/goexif/exif"
@@ -15,6 +15,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -34,41 +36,86 @@ func main() {
 	log.Println("Init ok")
 
 	back := flag.Bool("back", false, "detect, resize and upload pictures")
+	eraseDB := flag.Bool("erasedb", false, "if running in back mode, replace data in DB")
 	flag.Parse()
 
 	if *back {
-		runAsBack()
+		runAsBack(*eraseDB)
 	} else {
 		runAsFront()
 	}
 }
 
 func runAsFront() {
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
+	serveSingle("/", "static/main.html")
+	http.HandleFunc("/albums.json", albumsHandler)
+	http.HandleFunc("/images.json", imagesHandler)
 
-	/*for photo := range mongoPhotoStore.PhotoStream() {
-		log.Println(photo.Filename)
-	}*/
-
-	r := mux.NewRouter()
-	r.HandleFunc("/", HomeHandler)
-	http.Handle("/", r)
 	log.Println(http.ListenAndServe(":8080", nil))
-
 }
 
-func HomeHandler(w http.ResponseWriter, r *http.Request) {
-
-	fmt.Fprintf(w, "woot !")
-
+func albumsHandler(w http.ResponseWriter, r *http.Request) {
+	albums := []string{}
+PhtotSreamLoop:
+	for photo := range mongoPhotoStore.PhotoStream() {
+		timestamp := strconv.FormatInt(photo.AlbumDateTime.Unix(), 10)
+		for _, b := range albums {
+			if b == timestamp {
+				continue PhtotSreamLoop
+			}
+		}
+		albums = append(albums, timestamp)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(albums)))
+	slcB, _ := json.Marshal(albums)
+	w.Header().Set("Content-Type", "application/javascript")
+	fmt.Fprintf(w, string(slcB))
 }
 
-func runAsBack() {
+func imagesHandler(w http.ResponseWriter, r *http.Request) {
+
+	r.ParseForm()
+
+	photos := []util.Photo{}
+
+	s3Url := s3Manager.BucketURL()
+
+	for photo := range mongoPhotoStore.PhotoStream() {
+		photoAlbumTimestamp := strconv.FormatInt(photo.AlbumDateTime.Unix(), 10)
+		for _, albumTimestamp := range r.Form["albums"] {
+			if albumTimestamp == photoAlbumTimestamp {
+				photo.ThumbUrl = s3Url + s3Manager.ThumbPath + photo.Filename
+				photo.MediumUrl = s3Url + s3Manager.MediumPath + photo.Filename
+				photos = append(photos, photo)
+			}
+		}
+	}
+
+	sort.Sort(util.ByDateTime(photos))
+	slcB, _ := json.Marshal(photos)
+	w.Header().Set("Content-Type", "application/javascript")
+	fmt.Fprintf(w, string(slcB))
+}
+
+func serveSingle(pattern string, filename string) {
+	http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filename)
+	})
+}
+
+func runAsBack(eraseDb bool) {
 	var res []os.FileInfo
 	var err error
 	res, err = ioutil.ReadDir(imageSourceFolderPath)
 	if err != nil {
 		panic(err)
 	}
+
+	if eraseDb {
+		mongoPhotoStore.EraseDB()
+	}
+
 	for _, fileInfo := range res {
 		if !fileInfo.IsDir() {
 			wg.Add(1)

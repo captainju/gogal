@@ -79,3 +79,9 @@ func (mpr *MongoPhotoStore) PhotoStream() chan Photo {
 
 	return photoStream
 }
+
+func (mpr *MongoPhotoStore) EraseDB() {
+	con := mpr.getConnection()
+	con.DropCollection()
+	mpr.collection = nil
+}
