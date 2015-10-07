@@ -49,6 +49,8 @@ li:hover {
 .footer {
     max-width: 100px;
     margin: auto;
+    margin-bottom: 40px;
+    margin-top: 30px;
 }
 
 .modal-body {

@@ -45,7 +45,7 @@ angular.module('Album', [])
         $scope.loadMoreAlbums = function () {
             $scope.loadingStatus = true;
             //get unloaded albums
-            var albums = $scope.allAlbums.splice(0, 20);
+            var albums = $scope.allAlbums.splice(0, 8);
             $.each(albums, function () {
                 $scope.loadedAlbums.push(this);
             });
@@ -78,11 +78,7 @@ $(document).on("click", ".images img", function () {
     $('#imagemodal').modal('show');
     currentImg = this;
     $('#imagepreview').attr('src', $(this).data('mediumurl'));
-    if(this.width == 216) {
-        $('#imagemodal .modal-dialog').css("width", 1024 + 30);
-    } else {
-        $('#imagemodal .modal-dialog').css("width", 576 + 30);
-    }
+    $('#imagemodal .modal-dialog').css("width", (this.width)*4.74 + 30);
     var element_to_scroll_to = document.getElementById($(this).data('filename'));
     element_to_scroll_to.scrollIntoView();
 });

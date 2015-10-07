@@ -25,6 +25,7 @@ var (
 	wg                    sync.WaitGroup
 	mongoPhotoStore       util.MongoPhotoStore
 	s3Manager             util.S3Manager
+	cloudFrontManager     util.CloudFrontManager
 	imageSourceFolderPath string
 )
 
@@ -33,6 +34,7 @@ func main() {
 	loadEnvVars()
 	initS3Manager()
 	initMongoPhotoStore()
+	initCloudFrontManager()
 	log.Println("Init ok")
 
 	back := flag.Bool("back", false, "detect, resize and upload pictures")
@@ -79,14 +81,12 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	photos := []util.Photo{}
 
-	s3Url := s3Manager.BucketURL()
-
 	for photo := range mongoPhotoStore.PhotoStream() {
 		photoAlbumTimestamp := strconv.FormatInt(photo.AlbumDateTime.Unix(), 10)
 		for _, albumTimestamp := range r.Form["albums"] {
 			if albumTimestamp == photoAlbumTimestamp {
-				photo.ThumbUrl = s3Url + s3Manager.ThumbPath + photo.Filename
-				photo.MediumUrl = s3Url + s3Manager.MediumPath + photo.Filename
+				photo.ThumbUrl = cloudFrontManager.SignUrl(cloudFrontManager.BaseUrl + "/" + s3Manager.ThumbPath + photo.Filename)
+				photo.MediumUrl = cloudFrontManager.SignUrl(cloudFrontManager.BaseUrl + "/" + s3Manager.MediumPath + photo.Filename)
 				photos = append(photos, photo)
 			}
 		}
@@ -165,6 +165,23 @@ func initMongoPhotoStore() {
 		panic("Error mongodb : " + err.Error())
 	}
 	log.Println("MongoDB ok")
+}
+
+func initCloudFrontManager() {
+	cloudFrontManager = util.CloudFrontManager{
+		BaseUrl:        os.Getenv("CLOUDFRONT_BASE_URL"),
+		PrivateKeyFile: os.Getenv("CLOUDFRONT_PRIVATE_KEY_FILE"),
+		KeyId:          os.Getenv("CLOUDFRONT_KEY_ID"),
+		Expiration:     1,
+	}
+	if cloudFrontManager.BaseUrl == "" || cloudFrontManager.PrivateKeyFile == "" || cloudFrontManager.KeyId == "" {
+		panic("Error CloudFront : not configured")
+	}
+	err := cloudFrontManager.Init()
+	if err != nil {
+		panic("Error CloudFront : " + err.Error())
+	}
+	log.Println("CloudFront ok")
 }
 
 func handleFile(sourceFilename string) {
