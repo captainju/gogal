@@ -1,11 +1,13 @@
 package util
 
 import (
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"github.com/aws/aws-sdk-go/service/cloudfront/sign"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"time"
 )
 
@@ -15,6 +17,7 @@ type CloudFrontManager struct {
 	KeyId          string
 	Expiration     int
 	urlSigner      *sign.URLSigner
+	key            *rsa.PrivateKey
 }
 
 func (manager *CloudFrontManager) Init() error {
@@ -43,6 +46,8 @@ func (manager *CloudFrontManager) Init() error {
 		return err
 	}
 
+	manager.key = privKey
+
 	manager.urlSigner = sign.NewURLSigner(manager.KeyId, privKey)
 	return nil
 }
@@ -54,4 +59,19 @@ func (manager *CloudFrontManager) SignUrl(url string) (signedUrl string) {
 		log.Fatalf("Failed to sign url, err: %s\n", err.Error())
 	}
 	return signedURL
+}
+
+func (manager *CloudFrontManager) WriteCookies(w http.ResponseWriter, domain string) {
+	expiration := time.Now().Add(time.Duration(manager.Expiration) * time.Hour)
+
+	p := sign.NewCannedPolicy("*", expiration)
+
+	b64Signature, b64Policy, err := p.Sign(manager.key)
+	if err != nil {
+		log.Fatalf("Failed to sign policy, err: %s\n", err.Error())
+	}
+
+	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Name: "CloudFront-Policy", Value: string(b64Policy)})
+	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Name: "CloudFront-Signature", Value: string(b64Signature)})
+	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Name: "CloudFront-Key-Pair-Id", Value: manager.KeyId})
 }

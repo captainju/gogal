@@ -27,6 +27,8 @@ var (
 	s3Manager             util.S3Manager
 	cloudFrontManager     util.CloudFrontManager
 	imageSourceFolderPath string
+	httpPort              string
+	cookieDomain          string
 )
 
 func main() {
@@ -54,7 +56,7 @@ func runAsFront() {
 	http.HandleFunc("/albums.json", albumsHandler)
 	http.HandleFunc("/images.json", imagesHandler)
 
-	log.Println(http.ListenAndServe(":8080", nil))
+	log.Println(http.ListenAndServe(":"+httpPort, nil))
 }
 
 func albumsHandler(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +74,7 @@ PhtotSreamLoop:
 	sort.Sort(sort.Reverse(sort.StringSlice(albums)))
 	slcB, _ := json.Marshal(albums)
 	w.Header().Set("Content-Type", "application/javascript")
+	cloudFrontManager.WriteCookies(w, cookieDomain)
 	fmt.Fprintf(w, string(slcB))
 }
 
@@ -85,8 +88,8 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 		photoAlbumTimestamp := strconv.FormatInt(photo.AlbumDateTime.Unix(), 10)
 		for _, albumTimestamp := range r.Form["albums"] {
 			if albumTimestamp == photoAlbumTimestamp {
-				photo.ThumbUrl = cloudFrontManager.SignUrl(cloudFrontManager.BaseUrl + "/" + s3Manager.ThumbPath + photo.Filename)
-				photo.MediumUrl = cloudFrontManager.SignUrl(cloudFrontManager.BaseUrl + "/" + s3Manager.MediumPath + photo.Filename)
+				photo.ThumbUrl = cloudFrontManager.BaseUrl + "/" + s3Manager.ThumbPath + photo.Filename
+				photo.MediumUrl = cloudFrontManager.BaseUrl + "/" + s3Manager.MediumPath + photo.Filename
 				photos = append(photos, photo)
 			}
 		}
@@ -134,6 +137,14 @@ func loadEnvVars() {
 	_, err := os.Open(imageSourceFolderPath)
 	if err != nil {
 		panic("can't access image source folder path : " + err.Error())
+	}
+	httpPort = os.Getenv("HTTP_PORT_LISTEN")
+	if httpPort == "" {
+		panic("http listen port not configured")
+	}
+	cookieDomain = os.Getenv("COOKIE_DOMAIN")
+	if cookieDomain == "" {
+		panic("cookie domain not configured")
 	}
 	log.Println("image folder ok")
 }
