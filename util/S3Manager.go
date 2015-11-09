@@ -5,6 +5,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"io"
+	"log"
 )
 
 const dataType string = "image/jpeg"
@@ -37,20 +38,22 @@ func (manager *S3Manager) Connect() error {
 }
 
 func (manager S3Manager) UploadImage(rs io.ReadSeeker, fileName string) (url string, err error) {
-	return manager.upload(rs, fileName, manager.ImagePath)
+	return manager.upload(rs, fileName, manager.ImagePath, "image")
 }
 
 func (manager S3Manager) UploadThumb(rs io.ReadSeeker, fileName string) (url string, err error) {
-	return manager.upload(rs, fileName, manager.ThumbPath)
+	return manager.upload(rs, fileName, manager.ThumbPath, "thumb")
 }
 
 func (manager S3Manager) UploadMedium(rs io.ReadSeeker, fileName string) (url string, err error) {
-	return manager.upload(rs, fileName, manager.MediumPath)
+	return manager.upload(rs, fileName, manager.MediumPath, "medium")
 }
 
-func (manager S3Manager) upload(rs io.ReadSeeker, fileName string, path string) (url string, err error) {
+func (manager S3Manager) upload(rs io.ReadSeeker, fileName string, path string, imageType string) (url string, err error) {
 	defer func() { <-manager.queue }()
 	manager.queue <- true
+
+	log.Printf("Uploading %s %s", imageType, fileName)
 
 	filePath := path + fileName
 
@@ -66,6 +69,8 @@ func (manager S3Manager) upload(rs io.ReadSeeker, fileName string, path string) 
 	}
 
 	resp, err := manager.svc.PutObject(params)
+
+	log.Printf("%s %s successfully uploaded", imageType, fileName)
 
 	return resp.String(), err
 }

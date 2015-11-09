@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	wg                    sync.WaitGroup
-	mongoPhotoStore       util.MongoPhotoStore
+	wg sync.WaitGroup
+	//mongoPhotoStore util.MongoPhotoStore
+	jsonFilePhotoStore    util.JsonFilePhotoStore
 	s3Manager             util.S3Manager
 	cloudFrontManager     util.CloudFrontManager
 	imageSourceFolderPath string
@@ -35,7 +36,8 @@ func main() {
 	log.Println("Initializing...")
 	loadEnvVars()
 	initS3Manager()
-	initMongoPhotoStore()
+	//initMongoPhotoStore()
+	initJsonFilePhotoStore()
 	initCloudFrontManager()
 	log.Println("Init ok")
 
@@ -55,15 +57,15 @@ func runAsFront() {
 	serveSingle("/", "static/main.html")
 	http.HandleFunc("/albums.json", albumsHandler)
 	http.HandleFunc("/images.json", imagesHandler)
-
+	log.Println("Listening... ", ":"+httpPort)
 	log.Println(http.ListenAndServe(":"+httpPort, nil))
 }
 
 func albumsHandler(w http.ResponseWriter, r *http.Request) {
 	albums := []string{}
 PhtotSreamLoop:
-	for photo := range mongoPhotoStore.PhotoStream() {
-		timestamp := strconv.FormatInt(photo.AlbumDateTime.Unix(), 10)
+	for _, photo := range jsonFilePhotoStore.GetAll() {
+		timestamp := strconv.Itoa(photo.AlbumDateTime)
 		for _, b := range albums {
 			if b == timestamp {
 				continue PhtotSreamLoop
@@ -84,8 +86,8 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	photos := []util.Photo{}
 
-	for photo := range mongoPhotoStore.PhotoStream() {
-		photoAlbumTimestamp := strconv.FormatInt(photo.AlbumDateTime.Unix(), 10)
+	for _, photo := range jsonFilePhotoStore.GetAll() {
+		photoAlbumTimestamp := strconv.Itoa(photo.AlbumDateTime)
 		for _, albumTimestamp := range r.Form["albums"] {
 			if albumTimestamp == photoAlbumTimestamp {
 				photo.ThumbUrl = cloudFrontManager.BaseUrl + "/" + s3Manager.ThumbPath + photo.Filename
@@ -116,7 +118,8 @@ func runAsBack(eraseDb bool) {
 	}
 
 	if eraseDb {
-		mongoPhotoStore.EraseDB()
+		//mongoPhotoStore.EraseDB()
+		//todo : erase json file
 	}
 
 	for _, fileInfo := range res {
@@ -165,7 +168,7 @@ func initS3Manager() {
 	log.Println("S3 ok")
 }
 
-func initMongoPhotoStore() {
+/*func initMongoPhotoStore() {
 	mongoPhotoStore = util.MongoPhotoStore{
 		Url:            os.Getenv("MONGODB_URL"),
 		DbName:         os.Getenv("MONGODB_DB_NAME"),
@@ -176,6 +179,21 @@ func initMongoPhotoStore() {
 		panic("Error mongodb : " + err.Error())
 	}
 	log.Println("MongoDB ok")
+}*/
+
+func initJsonFilePhotoStore() {
+	jsonFilePhotoStore = util.JsonFilePhotoStore{
+		FileName: os.Getenv("JSON_FILE_NAME"),
+	}
+	err := jsonFilePhotoStore.Touch()
+	if err != nil {
+		panic("Error file : " + err.Error())
+	}
+	err = jsonFilePhotoStore.LoadFromFile()
+	if err != nil {
+		panic("Error loading photos : " + err.Error())
+	}
+	log.Println("JsonFilePhotoStore ok")
 }
 
 func initCloudFrontManager() {
@@ -198,18 +216,19 @@ func initCloudFrontManager() {
 func handleFile(sourceFilename string) {
 	defer wg.Done()
 
-	photo, err := mongoPhotoStore.LookupPhoto(sourceFilename)
+	photo, err := jsonFilePhotoStore.Get(sourceFilename)
 	if err != nil {
 		photo, err = createPhoto(sourceFilename)
 		if err != nil {
 			log.Printf("Can't create photo from %s : %s\n", sourceFilename, err.Error())
 			return
 		}
-		err = mongoPhotoStore.StorePhoto(photo)
+		err = jsonFilePhotoStore.Add(photo)
 		if err != nil {
 			log.Printf("Can't store photo from %s : %s\n", sourceFilename, err.Error())
 			return
 		}
+		jsonFilePhotoStore.StoreToFile()
 	}
 
 	if !s3Manager.ExistsImage(sourceFilename) {
@@ -217,9 +236,7 @@ func handleFile(sourceFilename string) {
 		if err != nil {
 			log.Println(err)
 		} else {
-			log.Printf("Uploading %s", sourceFilename)
 			s3Manager.UploadImage(f, sourceFilename)
-			log.Printf("%s successfully uploaded", sourceFilename)
 		}
 	}
 
@@ -232,10 +249,8 @@ func handleFile(sourceFilename string) {
 			buf := bytes.NewBuffer(make([]byte, 0))
 			resizeImg(f, buf, 0, 162)
 			log.Printf("%s successfully resized", sourceFilename)
-			log.Printf("Uploading thumb %s", sourceFilename)
 			r := bytes.NewReader(buf.Bytes())
 			s3Manager.UploadThumb(r, sourceFilename)
-			log.Printf("%s thumb successfully uploaded", sourceFilename)
 		}
 	}
 
@@ -248,10 +263,8 @@ func handleFile(sourceFilename string) {
 			buf := bytes.NewBuffer(make([]byte, 0))
 			resizeImg(f, buf, 0, 768)
 			log.Printf("%s successfully resized", sourceFilename)
-			log.Printf("Uploading medium %s", sourceFilename)
 			r := bytes.NewReader(buf.Bytes())
 			s3Manager.UploadMedium(r, sourceFilename)
-			log.Printf("%s medium successfully uploaded", sourceFilename)
 		}
 	}
 }
@@ -276,8 +289,8 @@ func createPhoto(sourceFilename string) (util.Photo, error) {
 	}
 
 	albumTime := time.Date(tm.Year(), tm.Month(), tm.Day(), 0, 0, 0, 0, time.UTC)
-	photo.AlbumDateTime = albumTime
-	photo.DateTime = tm
+	photo.AlbumDateTime = int(albumTime.Unix())
+	photo.DateTime = int(tm.Unix())
 	photo.Filename = sourceFilename
 	return photo, nil
 }
