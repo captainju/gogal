@@ -34,6 +34,12 @@ func (jfps *JsonFilePhotoStore) StoreToFile() error {
 	return ioutil.WriteFile(jfps.FileName, bytes, os.FileMode(0644))
 }
 
+func (jfps *JsonFilePhotoStore) RemoveStorageFile() error {
+	jfps.mutex.Lock()
+	defer jfps.mutex.Unlock()
+	return os.Remove(jfps.FileName)
+}
+
 func (jfps *JsonFilePhotoStore) Touch() error {
 	jfps.mutex.Lock()
 	defer jfps.mutex.Unlock()

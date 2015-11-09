@@ -1,6 +1,7 @@
 package util
 
 import (
+	"os"
 	"testing"
 )
 
@@ -98,5 +99,14 @@ func TestStoreToFileAndRestore(t *testing.T) {
 	}
 	if allPhotos[0] != photo1 || allPhotos[1] != photo2 {
 		t.Error("not the same photos retreived")
+	}
+
+	//remove storage file
+	err = jsonFilePhotoStore.RemoveStorageFile()
+	if err != nil {
+		t.Error(err)
+	}
+	if _, err := os.Open(filename); err == nil {
+		t.Error("Storage file should be removed")
 	}
 }

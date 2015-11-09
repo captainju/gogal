@@ -118,8 +118,8 @@ func runAsBack(eraseDb bool) {
 	}
 
 	if eraseDb {
-		//mongoPhotoStore.EraseDB()
-		//todo : erase json file
+		jsonFilePhotoStore.RemoveStorageFile()
+		jsonFilePhotoStore.Touch()
 	}
 
 	for _, fileInfo := range res {
