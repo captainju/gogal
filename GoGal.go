@@ -31,6 +31,7 @@ var (
 	cloudFrontManager     util.CloudFrontManager
 	imageSourceFolderPath string
 	httpPort              string
+	httpPrefix              string
 	cookieDomain          string
 )
 
@@ -55,18 +56,15 @@ func main() {
 	}
 }
 
-type FastCGIServer struct{}
-
-func (s FastCGIServer) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	resp.Write([]byte("<h1>Hello, 世界</h1>\n<p>Behold my Go web app.</p>"))
-}
-
 func runAsFront(fcgiServer bool) {
 	if fcgiServer {
 		listener, _ := net.Listen("tcp", ":"+httpPort)
-		srv := new(FastCGIServer)
+		http.Handle(httpPrefix+"/static/", http.StripPrefix(httpPrefix+"/static/", http.FileServer(http.Dir("static/"))))
+		serveSingle(httpPrefix+"/", "static/main.html")
+		http.HandleFunc(httpPrefix+"/albums.json", albumsHandler)
+		http.HandleFunc(httpPrefix+"/images.json", imagesHandler)
 		log.Println("Running as a FastCGI server on", listener.Addr().String())
-		log.Println(fcgi.Serve(listener, srv))
+		log.Println(fcgi.Serve(listener, nil))
 	} else {
 		http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
 		serveSingle("/", "static/main.html")
@@ -159,6 +157,7 @@ func loadEnvVars() {
 	if err != nil {
 		panic("can't access image source folder path : " + err.Error())
 	}
+	httpPrefix = os.Getenv("HTTP_PREFIX")
 	httpPort = os.Getenv("HTTP_PORT_LISTEN")
 	if httpPort == "" {
 		panic("http listen port not configured")
