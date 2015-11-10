@@ -31,7 +31,7 @@ var (
 	cloudFrontManager     util.CloudFrontManager
 	imageSourceFolderPath string
 	httpPort              string
-	httpPrefix              string
+	httpPrefix            string
 	cookieDomain          string
 )
 

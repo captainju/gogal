@@ -71,7 +71,7 @@ func (manager *CloudFrontManager) WriteCookies(w http.ResponseWriter, domain str
 		log.Fatalf("Failed to sign policy, err: %s\n", err.Error())
 	}
 
-	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Name: "CloudFront-Policy", Value: string(b64Policy)})
-	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Name: "CloudFront-Signature", Value: string(b64Signature)})
-	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Name: "CloudFront-Key-Pair-Id", Value: manager.KeyId})
+	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Path: "/", Name: "CloudFront-Policy", Value: string(b64Policy)})
+	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Path: "/", Name: "CloudFront-Signature", Value: string(b64Signature)})
+	http.SetCookie(w, &http.Cookie{HttpOnly: true, Domain: domain, Path: "/", Name: "CloudFront-Key-Pair-Id", Value: manager.KeyId})
 }
