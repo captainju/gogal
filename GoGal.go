@@ -13,7 +13,9 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
+	"net/http/fcgi"
 	"os"
 	"sort"
 	"strconv"
@@ -43,22 +45,36 @@ func main() {
 
 	back := flag.Bool("back", false, "detect, resize and upload pictures")
 	eraseDB := flag.Bool("erasedb", false, "if running in back mode, replace data in DB")
+	fcgiServer := flag.Bool("fcgi", false, "run as a FastCGI server")
 	flag.Parse()
 
 	if *back {
 		runAsBack(*eraseDB)
 	} else {
-		runAsFront()
+		runAsFront(*fcgiServer)
 	}
 }
 
-func runAsFront() {
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
-	serveSingle("/", "static/main.html")
-	http.HandleFunc("/albums.json", albumsHandler)
-	http.HandleFunc("/images.json", imagesHandler)
-	log.Println("Listening... ", ":"+httpPort)
-	log.Println(http.ListenAndServe(":"+httpPort, nil))
+type FastCGIServer struct{}
+
+func (s FastCGIServer) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
+	resp.Write([]byte("<h1>Hello, 世界</h1>\n<p>Behold my Go web app.</p>"))
+}
+
+func runAsFront(fcgiServer bool) {
+	if fcgiServer {
+		listener, _ := net.Listen("tcp", ":"+httpPort)
+		srv := new(FastCGIServer)
+		log.Println("Running as a FastCGI server on", listener.Addr().String())
+		log.Println(fcgi.Serve(listener, srv))
+	} else {
+		http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static/"))))
+		serveSingle("/", "static/main.html")
+		http.HandleFunc("/albums.json", albumsHandler)
+		http.HandleFunc("/images.json", imagesHandler)
+		log.Println("Listening... ", ":"+httpPort)
+		log.Println(http.ListenAndServe(":"+httpPort, nil))
+	}
 }
 
 func albumsHandler(w http.ResponseWriter, r *http.Request) {
@@ -125,10 +141,12 @@ func runAsBack(eraseDb bool) {
 	for _, fileInfo := range res {
 		if !fileInfo.IsDir() {
 			wg.Add(1)
+			//Todo : use a buffered channel for handling files
 			go handleFile(fileInfo.Name())
 		}
 	}
 	wg.Wait()
+	jsonFilePhotoStore.StoreToFile()
 }
 
 func loadEnvVars() {
@@ -228,7 +246,6 @@ func handleFile(sourceFilename string) {
 			log.Printf("Can't store photo from %s : %s\n", sourceFilename, err.Error())
 			return
 		}
-		jsonFilePhotoStore.StoreToFile()
 	}
 
 	if !s3Manager.ExistsImage(sourceFilename) {
