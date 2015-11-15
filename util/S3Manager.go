@@ -88,6 +88,9 @@ func (manager S3Manager) ExistsMedium(fileName string) (exists bool) {
 }
 
 func (manager S3Manager) exists(fileName string, path string) (exists bool) {
+
+	//TODO : use ListObjects instead of Head (cheaper)
+
 	filePath := path + fileName
 
 	params := &s3.HeadObjectInput{

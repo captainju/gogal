@@ -11,12 +11,12 @@ import (
 	"github.com/rwcarlsen/goexif/exif"
 	"image/jpeg"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/http/fcgi"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -24,8 +24,7 @@ import (
 )
 
 var (
-	wg sync.WaitGroup
-	//mongoPhotoStore util.MongoPhotoStore
+	wg                    sync.WaitGroup
 	jsonFilePhotoStore    util.JsonFilePhotoStore
 	s3Manager             util.S3Manager
 	cloudFrontManager     util.CloudFrontManager
@@ -33,13 +32,13 @@ var (
 	httpPort              string
 	httpPrefix            string
 	cookieDomain          string
+	workers               chan struct{}
 )
 
 func main() {
 	log.Println("Initializing...")
 	loadEnvVars()
 	initS3Manager()
-	//initMongoPhotoStore()
 	initJsonFilePhotoStore()
 	initCloudFrontManager()
 	log.Println("Init ok")
@@ -124,25 +123,21 @@ func serveSingle(pattern string, filename string) {
 }
 
 func runAsBack(eraseDb bool) {
-	var res []os.FileInfo
-	var err error
-	res, err = ioutil.ReadDir(imageSourceFolderPath)
-	if err != nil {
-		panic(err)
-	}
-
 	if eraseDb {
 		jsonFilePhotoStore.RemoveStorageFile()
 		jsonFilePhotoStore.Touch()
 	}
 
-	for _, fileInfo := range res {
-		if !fileInfo.IsDir() {
+	workers = make(chan struct{}, 4)
+
+	filepath.Walk(imageSourceFolderPath, func(path string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
 			wg.Add(1)
-			//Todo : use a buffered channel for handling files
-			go handleFile(fileInfo.Name())
+			workers <- struct{}{}
+			go handleFile(info.Name())
 		}
-	}
+		return err
+	})
 	wg.Wait()
 	jsonFilePhotoStore.StoreToFile()
 }
@@ -185,19 +180,6 @@ func initS3Manager() {
 	log.Println("S3 ok")
 }
 
-/*func initMongoPhotoStore() {
-	mongoPhotoStore = util.MongoPhotoStore{
-		Url:            os.Getenv("MONGODB_URL"),
-		DbName:         os.Getenv("MONGODB_DB_NAME"),
-		CollectionName: os.Getenv("MONGODB_COLLECTION_NAME"),
-	}
-	err := mongoPhotoStore.Ping()
-	if err != nil {
-		panic("Error mongodb : " + err.Error())
-	}
-	log.Println("MongoDB ok")
-}*/
-
 func initJsonFilePhotoStore() {
 	jsonFilePhotoStore = util.JsonFilePhotoStore{
 		FileName: os.Getenv("JSON_FILE_NAME"),
@@ -232,6 +214,7 @@ func initCloudFrontManager() {
 
 func handleFile(sourceFilename string) {
 	defer wg.Done()
+	defer func() { <-workers }()
 
 	photo, err := jsonFilePhotoStore.Get(sourceFilename)
 	if err != nil {
