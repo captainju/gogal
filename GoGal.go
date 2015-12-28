@@ -230,7 +230,12 @@ func handleFile(sourceFilename string) {
 		}
 	}
 
-	if !s3Manager.ExistsImage(sourceFilename) {
+	exists, err := s3Manager.ExistsImage(sourceFilename)
+	if err != nil {
+		log.Printf(err.Error())
+		return
+	}
+	if !exists {
 		f, err := os.Open(imageSourceFolderPath + sourceFilename)
 		if err != nil {
 			log.Println(err)
@@ -239,7 +244,12 @@ func handleFile(sourceFilename string) {
 		}
 	}
 
-	if !s3Manager.ExistsThumb(sourceFilename) {
+	exists, err = s3Manager.ExistsThumb(sourceFilename)
+	if err != nil {
+		log.Printf(err.Error())
+		return
+	}
+	if !exists {
 		f, err := os.Open(imageSourceFolderPath + sourceFilename)
 		if err != nil {
 			log.Println(err)
@@ -253,7 +263,12 @@ func handleFile(sourceFilename string) {
 		}
 	}
 
-	if !s3Manager.ExistsMedium(sourceFilename) {
+	exists, err = s3Manager.ExistsMedium(sourceFilename)
+	if err != nil {
+		log.Printf(err.Error())
+		return
+	}
+	if !exists {
 		f, err := os.Open(imageSourceFolderPath + sourceFilename)
 		if err != nil {
 			log.Println(err)

@@ -6,6 +6,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"io"
 	"log"
+	"sort"
+	"sync"
 )
 
 const dataType string = "image/jpeg"
@@ -17,6 +19,8 @@ type S3Manager struct {
 	ImagePath           string
 	ThumbPath           string
 	MediumPath          string
+	mutex               *sync.Mutex
+	existingFiles       []string
 	NbConcurrentUploads int
 	svc                 *s3.S3
 	queue               chan (bool)
@@ -29,6 +33,7 @@ func (manager *S3Manager) Connect() error {
 	})
 
 	manager.queue = make(chan (bool), manager.NbConcurrentUploads)
+	manager.mutex = &sync.Mutex{}
 
 	params := &s3.HeadBucketInput{
 		Bucket: aws.String(manager.Bucket), // Required
@@ -75,35 +80,56 @@ func (manager S3Manager) upload(rs io.ReadSeeker, fileName string, path string, 
 	return resp.String(), err
 }
 
-func (manager S3Manager) ExistsImage(fileName string) (exists bool) {
+func (manager *S3Manager) ExistsImage(fileName string) (exists bool, err error) {
 	return manager.exists(fileName, manager.ImagePath)
 }
 
-func (manager S3Manager) ExistsThumb(fileName string) (exists bool) {
+func (manager *S3Manager) ExistsThumb(fileName string) (exists bool, err error) {
 	return manager.exists(fileName, manager.ThumbPath)
 }
 
-func (manager S3Manager) ExistsMedium(fileName string) (exists bool) {
+func (manager *S3Manager) ExistsMedium(fileName string) (exists bool, err error) {
 	return manager.exists(fileName, manager.MediumPath)
 }
 
-func (manager S3Manager) exists(fileName string, path string) (exists bool) {
-
-	//TODO : use ListObjects instead of Head (cheaper)
+func (manager *S3Manager) exists(fileName string, path string) (exists bool, err error) {
+	initError := manager.initExistingFiles()
+	if initError != nil {
+		return false, initError
+	}
 
 	filePath := path + fileName
-
-	params := &s3.HeadObjectInput{
-		Bucket: aws.String(manager.Bucket), // Required
-		Key:    aws.String(filePath),       // Required
-	}
-	_, err := manager.svc.HeadObject(params)
-
-	if err != nil {
-		return false
+	i := sort.Search(len(manager.existingFiles), func(i int) bool { return manager.existingFiles[i] >= filePath })
+	if i < len(manager.existingFiles) && manager.existingFiles[i] == filePath {
+		return true, nil
 	}
 
-	return true
+	return false, nil
+}
+
+func (manager *S3Manager) initExistingFiles() error {
+	defer manager.mutex.Unlock()
+	manager.mutex.Lock()
+
+	if len(manager.existingFiles) == 0 {
+		log.Printf("Retrieving all images from S3")
+		params := &s3.ListObjectsInput{
+			Bucket:  aws.String(manager.Bucket), // Required
+			MaxKeys: aws.Int64(1000),
+		}
+		err := manager.svc.ListObjectsPages(params, func(p *s3.ListObjectsOutput, lastPage bool) bool {
+			for _, object := range p.Contents {
+				manager.existingFiles = append(manager.existingFiles, *object.Key)
+			}
+			return true
+		})
+		if err != nil {
+			return err
+		}
+		sort.Strings(manager.existingFiles)
+		log.Printf("%d images retrieved from S3", len(manager.existingFiles))
+	}
+	return nil
 }
 
 func (manager S3Manager) BucketURL() string {
